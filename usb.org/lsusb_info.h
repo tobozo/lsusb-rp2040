@@ -157,18 +157,6 @@ const char* bEndpointAddress_to_string( uint8_t address )
 }
 
 
-void parse_bm_attributes( tusb_desc_endpoint_t const * desc_ep, const char*spacing )
-{
-  int XferIdx  = desc_ep->bmAttributes.xfer  < 4 ? desc_ep->bmAttributes.xfer  : 0;
-  int SyncIdx  = desc_ep->bmAttributes.sync  < 4 ? desc_ep->bmAttributes.sync  : 0;
-  int UsageIdx = desc_ep->bmAttributes.usage < 4 ? desc_ep->bmAttributes.usage : 0;
-
-  printf("%s  bmAttributes:\n", spacing );
-  printf("%s    Transfer Type: %s\n", spacing, bmAttrXfer[XferIdx]   );
-  printf("%s    Synch Type:    %s\n", spacing, bmAttrSync[SyncIdx]   );
-  printf("%s    Usage Type:    %s\n", spacing, bmAttrUsage[UsageIdx] );
-}
-
 
 const char *bJackType_to_string( uint8_t type )
 {

@@ -56,6 +56,8 @@ void parse_config_descriptor(uint8_t dev_addr, tusb_desc_configuration_t const* 
 void parse_hid_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, uint16_t max_len);
 void parse_audio_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, uint16_t max_len);
 void parse_generic_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, uint16_t max_len);
+void parse_cdc_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, tusb_desc_interface_assoc_t* desc_assoc, uint16_t max_len);
+void parse_mtp_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, uint16_t max_len);
 
 
 void debug_print(char* str)
@@ -208,11 +210,93 @@ void print_device_descriptor(tuh_xfer_t* xfer)
 }
 
 
-// simple configuration parser
-void parse_config_descriptor(uint8_t dev_addr, tusb_desc_configuration_t const* desc_cfg)
+void print_hid_dev_descriptor( tusb_hid_descriptor_hid_t const * desc_hid )
 {
-  uint8_t const* desc_end = ((uint8_t const*) desc_cfg) + tu_le16toh(desc_cfg->wTotalLength);
-  uint8_t const* p_desc   = tu_desc_next(desc_cfg);
+  printf("        HID Device Descriptor:\n");
+  printf("          bLength         %2d\n", desc_hid->bLength);         /**< Numeric expression that is the total size of the HID descriptor */
+  printf("          bDescriptorType %2d\n", desc_hid->bDescriptorType); /**< Constant name specifying type of HID descriptor. */
+  printf("          bcdHID         %3d\n",  desc_hid->bcdHID);          /**< Numeric expression identifying the HID Class Specification release */
+  printf("          bCountryCode    %2d\n", desc_hid->bCountryCode);    /**< Numeric expression identifying country code of the localized hardware.  */
+  printf("          bNumDescriptors %2d\n", desc_hid->bNumDescriptors); /**< Numeric expression specifying the number of class descriptors */
+  printf("          bReportType     %2d\n", desc_hid->bReportType);     /**< Type of HID class report. */
+  printf("          wReportLength   %2d\n", desc_hid->wReportLength);   /**< the total size of the Report descriptor. */
+}
+
+
+
+void print_interface_descriptor(uint8_t dev_addr, tusb_desc_interface_t const* desc_itf )
+{
+  auto class_sub_proto = get_class_sub_proto(desc_itf->bInterfaceClass, desc_itf->bInterfaceSubClass, desc_itf->bInterfaceProtocol );
+  printf("    Interface Descriptor #%d:\n",   desc_itf->bInterfaceNumber );
+  printf("      bLength            %8d\n",    desc_itf->bLength );
+  printf("      bDescriptorType    %8d\n",    desc_itf->bDescriptorType );
+  printf("      bInterfaceNumber   %8d\n",    desc_itf->bInterfaceNumber );
+  printf("      bAlternateSetting  %8d\n",    desc_itf->bAlternateSetting );
+  printf("      bNumEndpoints      %8d\n",    desc_itf->bNumEndpoints );
+  printf("      bInterfaceClass    %8d %s\n", desc_itf->bInterfaceClass, class_sub_proto.dev_class->name );
+  printf("      bInterfaceSubClass %8d %s\n", desc_itf->bInterfaceSubClass, class_sub_proto.dev_subclass->name  );
+  printf("      bInterfaceProtocol %8d %s\n", desc_itf->bInterfaceProtocol, class_sub_proto.dev_proto->name );
+  printf("      iInterface         %8d ",    desc_itf->iInterface );  ///< Index of string descriptor describing this interface
+  if (desc_itf->iInterface != 0) {
+    uint16_t str[128];
+    if (XFER_RESULT_SUCCESS == tuh_descriptor_get_string_sync(dev_addr, desc_itf->iInterface, LANGUAGE_ID, str, sizeof(str)) ) {
+      print_utf16( str, sizeof(str), debug_print );
+    }
+  }
+  printf("\n");
+}
+
+
+void print_interface_association(uint8_t dev_addr, tusb_desc_interface_assoc_t const* desc_assoc )
+{
+  auto class_sub_proto = get_class_sub_proto(desc_assoc->bFunctionClass, desc_assoc->bFunctionSubClass, desc_assoc->bFunctionProtocol );
+  printf("    Interface Association:\n" );
+  printf("      bLength                %2d\n", desc_assoc->bLength );
+  printf("      bDescriptorType        %2d\n", desc_assoc->bDescriptorType );
+  printf("      bFirstInterface        %2d\n", desc_assoc->bFirstInterface );
+  printf("      bInterfaceCount        %2d\n", desc_assoc->bInterfaceCount );
+  printf("      bFunctionClass         %2d %s\n", desc_assoc->bFunctionClass, class_sub_proto.dev_class->name );
+  printf("      bFunctionSubClass      %2d %s\n", desc_assoc->bFunctionSubClass, class_sub_proto.dev_subclass->name );
+  printf("      bFunctionProtocol      %2d %s\n", desc_assoc->bFunctionProtocol, class_sub_proto.dev_proto->name );
+  printf("      iFunction              %2d ", desc_assoc->iFunction );
+  if (desc_assoc->iFunction != 0) {
+    uint16_t str[128];
+    if (XFER_RESULT_SUCCESS == tuh_descriptor_get_string_sync(dev_addr, desc_assoc->iFunction, LANGUAGE_ID, str, sizeof(str)) ) {
+      print_utf16( str, sizeof(str), debug_print );
+    }
+  }
+  printf("\n");
+}
+
+
+void print_bm_attributes( tusb_desc_endpoint_t const * desc_ep, const char*spacing )
+{
+  int XferIdx  = desc_ep->bmAttributes.xfer  < 4 ? desc_ep->bmAttributes.xfer  : 0;
+  int SyncIdx  = desc_ep->bmAttributes.sync  < 4 ? desc_ep->bmAttributes.sync  : 0;
+  int UsageIdx = desc_ep->bmAttributes.usage < 4 ? desc_ep->bmAttributes.usage : 0;
+
+  printf("%s  bmAttributes:    0x%02x\n", spacing, desc_ep->bmAttributes );
+  printf("%s    Transfer Type:   %s\n", spacing, bmAttrXfer[XferIdx]   );
+  printf("%s    Synch Type:      %s\n", spacing, bmAttrSync[SyncIdx]   );
+  printf("%s    Usage Type:      %s\n", spacing, bmAttrUsage[UsageIdx] );
+}
+
+
+void print_endpoint_descriptor( tusb_desc_endpoint_t const* cdc_edp, const char* prefix="", const char* spacing="      " )
+{
+  printf("%s%s Endpoint Descriptor:\n", spacing, prefix);
+  printf("%s  bLength         %2d\n", spacing, cdc_edp->bLength);         /**< Numeric expression that is the total size of the HID descriptor */
+  printf("%s  bDescriptorType %2d\n", spacing, cdc_edp->bDescriptorType); /**< Constant name specifying type of HID descriptor. */
+  printf("%s  bEndpointAddress 0x%02x %s\n", spacing, cdc_edp->bEndpointAddress, bEndpointAddress_to_string(cdc_edp->bEndpointAddress) );
+  print_bm_attributes( cdc_edp, spacing);
+  printf("%s  wMaxPacketSize   0x%04x  1x %d bytes\n", spacing, cdc_edp->wMaxPacketSize, cdc_edp->wMaxPacketSize );
+  printf("%s  bInterval       %8d\n", spacing, cdc_edp->bInterval );
+}
+
+
+
+void print_config_descriptor( tusb_desc_configuration_t const* desc_cfg)
+{
 
   printf("  Configuration Descriptor:\n");
   printf("    bLength             %8d\n",        desc_cfg->bLength );
@@ -223,33 +307,55 @@ void parse_config_descriptor(uint8_t dev_addr, tusb_desc_configuration_t const* 
   printf("    iConfiguration      %8d\n",        desc_cfg->iConfiguration );
   printf("    bmAttributes            0x%02x\n", desc_cfg->bmAttributes );
 
+  // bmAttributes: a device configuration that uses power from the bus and a local source reports a non-zero value
+  // in bMaxPower to indicate the amount of bus power required and sets bit 6.
+  // The actual power source at runtime can be determined using the GetStatus(DEVICE) request. If a device
+  // configuration supports remote wakeup, bit 5 is set to 1.
+  // Configuration characteristics:
+  //     bit 7: Reserved (must be set to one for historical reasons)
+  //     bit 6: Self-powered
+  //     bit 5: Remote Wakeup
+  //     bit 4...0: Reserved (reset to zero)
+  if( desc_cfg->bmAttributes & 0b01000000 ) {
+    printf ("      Self Powered\n");// bit 6: Self-powered
+    printf("    bMaxPower               %dmA\n",   desc_cfg->bMaxPower );
+  }
+
+  if( desc_cfg->bmAttributes & 0b00100000 )
+    printf ("      Remote Wakeup\n");// bit 5: Remote Wakeup
+}
+
+
+
+
+
+
+
+// simple configuration parser
+void parse_config_descriptor(uint8_t dev_addr, tusb_desc_configuration_t const* desc_cfg)
+{
+  uint8_t const* desc_end = ((uint8_t const*) desc_cfg) + tu_le16toh(desc_cfg->wTotalLength);
+  uint8_t const* p_desc   = tu_desc_next(desc_cfg);
+
+  print_config_descriptor( desc_cfg );
+
   // parse each interfaces
   while( p_desc < desc_end ) {
     uint8_t assoc_itf_count = 1;
+    tusb_desc_interface_assoc_t* desc_assoc = nullptr;
     // Class will always starts with Interface Association (if any) and then Interface descriptor
     if ( TUSB_DESC_INTERFACE_ASSOCIATION == tu_desc_type(p_desc) ) {
-      auto desc_iad = (tusb_desc_interface_assoc_t const *) p_desc;
-      assoc_itf_count = desc_iad->bInterfaceCount;
+      desc_assoc = (tusb_desc_interface_assoc_t*) p_desc;
+      assoc_itf_count = desc_assoc->bInterfaceCount;
+      print_interface_association( dev_addr, desc_assoc );
       p_desc = tu_desc_next(p_desc); // next to Interface
     }
 
     // must be interface from now
     if( TUSB_DESC_INTERFACE != tu_desc_type(p_desc) ) return;
     auto desc_itf = (tusb_desc_interface_t const*) p_desc;
-    auto class_sub_proto = get_class_sub_proto(desc_itf->bInterfaceClass, desc_itf->bInterfaceSubClass, desc_itf->bInterfaceProtocol );
+    print_interface_descriptor( dev_addr, desc_itf );
     uint16_t const drv_len = count_interface_total_len(desc_itf, assoc_itf_count, (uint16_t) (desc_end-p_desc));
-
-    printf("    Interface Descriptor #%d:\n",   desc_itf->bInterfaceNumber );
-    printf("      bLength            %8d\n",    desc_itf->bLength );
-    printf("      bDescriptorType    %8d\n",    desc_itf->bDescriptorType );
-    printf("      bInterfaceNumber   %8d\n",    desc_itf->bInterfaceNumber );
-    printf("      bAlternateSetting  %8d\n",    desc_itf->bAlternateSetting );
-    printf("      bNumEndpoints      %8d\n",    desc_itf->bNumEndpoints );
-    printf("      bInterfaceClass    %8d %s\n", desc_itf->bInterfaceClass, class_sub_proto.dev_class->name );
-    printf("      bInterfaceSubClass %8d %s\n", desc_itf->bInterfaceSubClass, class_sub_proto.dev_subclass->name  );
-    printf("      bInterfaceProtocol %8d %s\n", desc_itf->bInterfaceProtocol, class_sub_proto.dev_proto->name );
-    printf("      iInterface         %8d\n",    desc_itf->iInterface );
-
     if(drv_len < sizeof(tusb_desc_interface_t)) { // probably corrupted descriptor
       printf("      ***CORRUPTED DESCRIPTOR\n");
       return;
@@ -258,10 +364,9 @@ void parse_config_descriptor(uint8_t dev_addr, tusb_desc_configuration_t const* 
     switch( desc_itf->bInterfaceClass ) { // type = tusb_class_code_t
       case TUSB_CLASS_HID                  /*3   */: parse_hid_interface(dev_addr, desc_itf, drv_len); break;
       case TUSB_CLASS_AUDIO                /*1   */: parse_audio_interface(dev_addr, desc_itf, drv_len ); break;
-      default                                      : parse_generic_interface( dev_addr, desc_itf, drv_len ); break;
+      case TUSB_CLASS_CDC                  /*2   */: parse_cdc_interface(dev_addr, desc_itf, desc_assoc, drv_len ); break;
+      case TUSB_CLASS_IMAGE                /*6   */: parse_mtp_interface( dev_addr, desc_itf, drv_len ); break;
       // case TUSB_CLASS_UNSPECIFIED          /*0   */: printf("[IGNORED] Unspecified Class\n"); break;
-      // case TUSB_CLASS_CDC                  /*2   */: printf("[IGNORED] CDC Class\n"); break;
-      //
       // case TUSB_CLASS_RESERVED_4           /*4   */: printf("[IGNORED] Reserved class\n"); break;
       // case TUSB_CLASS_PHYSICAL             /*5   */: printf("[IGNORED] PHY class\n"); break;
       // case TUSB_CLASS_IMAGE                /*6   */: printf("[IGNORED] Imaging class\n"); break;
@@ -281,6 +386,7 @@ void parse_config_descriptor(uint8_t dev_addr, tusb_desc_configuration_t const* 
       // case TUSB_CLASS_MISC                 /*0xEF*/: printf("[IGNORED] Misc class\n"); break;
       // case TUSB_CLASS_APPLICATION_SPECIFIC /*0xFE*/: printf("[IGNORED] App Specific class\n"); break;
       // case TUSB_CLASS_VENDOR_SPECIFIC      /*0xFF*/: printf("[IGNORED] Vendor Specific class\n"); break;
+      default                                      : parse_generic_interface( dev_addr, desc_itf, drv_len ); break;
     }
     // next Interface or IAD descriptor
     p_desc += drv_len;
@@ -342,7 +448,7 @@ void parse_audio_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf,
             case MIDI_CS_INTERFACE_IN_JACK: {
                 auto midi_in_jack = (midi_desc_in_jack_t*)midi_header;
                 to_read -= midi_in_jack->bLength;
-                printf("      MIDIStreaming Interface Descriptor(IN):\n");
+                printf("      MIDIStreaming Interface Descriptor (IN):\n");
                 printf("        bLength            %2d\n",      midi_in_jack->bLength            ); ///< Size of this descriptor in bytes.
                 printf("        bDescriptorType    %2d\n",      midi_in_jack->bDescriptorType    ); ///< Descriptor Type, must be Class-Specific
                 printf("        bDescriptorSubType %2d (%s)\n", midi_in_jack->bDescriptorSubType, midi_desc_subtype_to_string(midi_in_jack->bDescriptorSubType) );
@@ -353,7 +459,7 @@ void parse_audio_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf,
             case MIDI_CS_INTERFACE_OUT_JACK: {
                 auto midi_out_jack = (midi_desc_out_jack_t*)midi_header;
                 to_read -= midi_out_jack->bLength;
-                printf("      MIDIStreaming Interface Descriptor(OUT):\n");
+                printf("      MIDIStreaming Interface Descriptor (OUT):\n");
                 printf("        bLength             %2d\n",      midi_out_jack->bLength            ); ///< Size of this descriptor in bytes.
                 printf("        bDescriptorType     %2d\n",      midi_out_jack->bDescriptorType    ); ///< Descriptor Type, must be Class-Specific
                 printf("        bDescriptorSubType  %2d (%s)\n", midi_out_jack->bDescriptorSubType, midi_desc_subtype_to_string(midi_out_jack->bDescriptorSubType) );
@@ -375,19 +481,13 @@ void parse_audio_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf,
           to_read -= desc_ep->bLength;
 
           if( desc_ep->bDescriptorType == 0x05 /*AUDIO_CS_AC_INTERFACE_SELECTOR_UNIT*/ ) {
-            printf("      Endpoint Descriptor:\n");
-            printf("        bLength         %8d\n",           desc_ep->bLength);
-            printf("        bDescriptorType %8d\n",           desc_ep->bDescriptorType);
-            printf("        bEndpointAddress    0x%02x %s\n", desc_ep->bEndpointAddress, bEndpointAddress_to_string(desc_ep->bEndpointAddress) );
-            parse_bm_attributes( desc_ep, "      ");
-            printf("        wMaxPacketSize    0x%04x\n",      desc_ep->wMaxPacketSize );
-            printf("        bInterval       %8d\n",           desc_ep->bInterval );
+            print_endpoint_descriptor( desc_ep );
           } else {
             bEndpointAddress_t edp = {desc_ep->bEndpointAddress};
 
             if( edp.bits.dir==1 ) {
               auto desc_in = (midi_desc_in_jack_t*)p_desc;
-              printf("      MIDIStreaming Endpoint Descriptor:\n");
+              printf("      MIDIStreaming Endpoint Descriptor (IN):\n");
               printf("        bLength            %8d\n", desc_in->bLength);
               printf("        bDescriptorType    %8d\n", desc_in->bDescriptorType);
               printf("        bDescriptorSubType %8d\n", desc_in->bDescriptorSubType);
@@ -395,7 +495,7 @@ void parse_audio_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf,
               printf("        bJackID            %8d\n", desc_in->bJackID);
             } else {
               auto desc_out = (midi_desc_out_jack_t*)p_desc;
-              printf("      MIDIStreaming Endpoint Descriptor:\n");
+              printf("      MIDIStreaming Endpoint Descriptor (OUT):\n");
               printf("        bLength            %8d\n", desc_out->bLength);
               printf("        bDescriptorType    %8d\n", desc_out->bDescriptorType);
               printf("        bDescriptorSubType %8d\n", desc_out->bDescriptorSubType);
@@ -414,6 +514,84 @@ void parse_audio_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf,
 }
 
 
+
+
+void parse_cdc_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, tusb_desc_interface_assoc_t* desc_assoc, uint16_t max_len)
+{
+  (void)daddr;
+  (void)max_len;
+  uint8_t const *p_desc = (uint8_t const *) desc_itf;
+  auto desc_generic = (tusb_desc_endpoint_t const *) p_desc;
+  p_desc += desc_generic->bLength;
+
+  auto cdc_header = (cdc_desc_func_header_t*) p_desc;
+  printf("      CDC Header:\n");
+  printf("        bcdCDC         %x\n", cdc_header->bcdCDC);
+  p_desc += sizeof(cdc_desc_func_header_t);
+
+  auto cdc_cm = (cdc_desc_func_call_management_t*) p_desc;
+  printf("      CDC Call Management:\n");
+  printf("        bmCapabilities 0x%02x\n", cdc_cm->bmCapabilities); // see cdc_desc_func_call_management_t::bmCapabilities
+  printf("        bDataInterface    %d\n", cdc_cm->bDataInterface);
+  p_desc += sizeof(cdc_desc_func_call_management_t);
+
+  auto cdc_acm = (cdc_desc_func_acm_t*) p_desc;
+  printf("      CDC ACM:\n");
+  // see cdc_acm_capability_t ( props=support_comm_request, support_line_request, support_send_break, support_notification_network_connection)
+  printf("        bmCapabilities 0x%02x\n", cdc_acm->bmCapabilities);
+  if( cdc_acm->bmCapabilities.support_comm_request )
+    printf("          communication requests\n");
+  if( cdc_acm->bmCapabilities.support_line_request )
+    printf("          line coding and serial state\n");
+  if( cdc_acm->bmCapabilities.support_send_break )
+    printf("          send break\n");
+  if( cdc_acm->bmCapabilities.support_notification_network_connection )
+    printf("          notifications for network connections\n");
+  p_desc += sizeof(cdc_desc_func_acm_t);
+
+  auto cdc_union = (cdc_desc_func_union_t*) p_desc;
+  printf("      CDC Union:\n");
+  printf("        bControlInterface     0x%02x\n", cdc_union->bControlInterface);
+  printf("        bSubordinateInterface 0x%02x\n", cdc_union->bSubordinateInterface);
+
+  p_desc += sizeof(cdc_desc_func_union_t);
+  auto cdc_edp = (tusb_desc_endpoint_t*) p_desc;
+  if( cdc_edp->bLength == 0 ) return;
+
+  print_endpoint_descriptor( cdc_edp );
+  p_desc += cdc_edp->bLength;
+
+  auto cdc_itf = (tusb_desc_interface_t*) p_desc;
+  print_interface_descriptor( daddr, cdc_itf );
+
+  uint16_t const cdc_itf_len = count_interface_total_len(cdc_itf, desc_assoc->bInterfaceCount, cdc_itf->bLength);
+  parse_generic_interface( daddr, cdc_itf, cdc_itf_len );
+}
+
+
+
+void parse_mtp_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
+{
+  (void)daddr;
+  uint8_t const *p_desc = (uint8_t const *) desc_itf;
+  auto desc_generic = (tusb_desc_endpoint_t const *) p_desc;
+  uint16_t bytes_read = desc_generic->bLength;
+  p_desc += desc_generic->bLength;
+
+  auto edp_count = 0;//desc_itf->bNumEndpoints;
+
+  do {
+    desc_generic = (tusb_desc_endpoint_t const *) p_desc;
+    if( desc_generic->bLength == 0 ) break;
+    print_endpoint_descriptor( desc_generic, "", "        " );
+    p_desc += desc_generic->bLength;
+    bytes_read += desc_generic->bLength;
+  } while( ++edp_count<desc_itf->bNumEndpoints && bytes_read <=max_len );
+}
+
+
+
+
 void parse_generic_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, uint16_t max_len)
 {
   (void)daddr;
@@ -422,19 +600,15 @@ void parse_generic_interface(uint8_t daddr, tusb_desc_interface_t const *desc_it
   uint16_t bytes_read = desc_generic->bLength;
   p_desc += desc_generic->bLength;
 
+  auto edp_count = 0;//desc_itf->bNumEndpoints;
+
   do {
     desc_generic = (tusb_desc_endpoint_t const *) p_desc;
     if( desc_generic->bLength == 0 ) break;
+    print_endpoint_descriptor( desc_generic, "Generic", "        " );
     p_desc += desc_generic->bLength;
     bytes_read += desc_generic->bLength;
-    printf("        Generic Endpoint Descriptor:\n");
-    printf("          bLength         %2d\n", desc_generic->bLength);         /**< Numeric expression that is the total size of the HID descriptor */
-    printf("          bDescriptorType %2d\n", desc_generic->bDescriptorType); /**< Constant name specifying type of HID descriptor. */
-    printf("          bEndpointAddress    0x%02x %s\n", desc_generic->bEndpointAddress, bEndpointAddress_to_string(desc_generic->bEndpointAddress) );
-    parse_bm_attributes( desc_generic, "        ");
-    printf("          wMaxPacketSize    0x%04x\n",      desc_generic->wMaxPacketSize );
-    printf("          bInterval       %8d\n",           desc_generic->bInterval );
-  } while( bytes_read <=max_len );
+  } while( ++edp_count<desc_itf->bNumEndpoints && bytes_read <=max_len );
 }
 
 
@@ -445,7 +619,7 @@ void parse_hid_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, u
   uint16_t const drv_len = (uint16_t) (sizeof(tusb_desc_interface_t) + sizeof(tusb_hid_descriptor_hid_t) + desc_itf->bNumEndpoints * sizeof(tusb_desc_endpoint_t));
   // corrupted descriptor
   if (max_len < drv_len) {
-    printf("        [ERROR] Len overvlow\n");
+    printf("        [ERROR] Len overflow\n");
     return;
   }
   uint8_t const *p_desc = (uint8_t const *) desc_itf;
@@ -457,14 +631,7 @@ void parse_hid_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, u
     return;
   }
 
-  printf("        HID Device Descriptor:\n");
-  printf("          bLength         %2d\n", desc_hid->bLength);         /**< Numeric expression that is the total size of the HID descriptor */
-  printf("          bDescriptorType %2d\n", desc_hid->bDescriptorType); /**< Constant name specifying type of HID descriptor. */
-  printf("          bcdHID         %3d\n",  desc_hid->bcdHID);          /**< Numeric expression identifying the HID Class Specification release */
-  printf("          bCountryCode    %2d\n", desc_hid->bCountryCode);    /**< Numeric expression identifying country code of the localized hardware.  */
-  printf("          bNumDescriptors %2d\n", desc_hid->bNumDescriptors); /**< Numeric expression specifying the number of class descriptors */
-  printf("          bReportType     %2d\n", desc_hid->bReportType);     /**< Type of HID class report. */
-  printf("          wReportLength   %2d\n", desc_hid->wReportLength);   /**< the total size of the Report descriptor. */
+  print_hid_dev_descriptor( desc_hid );
 
   // Endpoint descriptor
   p_desc = tu_desc_next(p_desc);
@@ -475,13 +642,7 @@ void parse_hid_interface(uint8_t daddr, tusb_desc_interface_t const *desc_itf, u
       return;
     }
 
-    printf("      HID Endpoint Descriptor:\n");
-    printf("        bLength         %8d\n", desc_ep->bLength);
-    printf("        bDescriptorType %8d\n", desc_ep->bDescriptorType);
-    printf("        bEndpointAddress    0x%02x %s\n", desc_ep->bEndpointAddress, bEndpointAddress_to_string(desc_ep->bEndpointAddress) );
-    parse_bm_attributes( desc_ep, "      " );
-    printf("        wMaxPacketSize    0x%04x\n", desc_ep->wMaxPacketSize );
-    printf("        bInterval       %8d\n", desc_ep->bInterval );
+    print_endpoint_descriptor( desc_ep, "HID" );
 
     if(tu_edpt_dir(desc_ep->bEndpointAddress) == TUSB_DIR_IN) {
       // skip if failed to open endpoint

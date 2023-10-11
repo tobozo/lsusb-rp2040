@@ -32,6 +32,8 @@ void setup1() {
   // port1) on core1
   tuh_init(1);
 
+  printf("USB Host ready");
+
   // while (true) {
   //   tuh_task(); // tinyusb host task
   // }
