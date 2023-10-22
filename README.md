@@ -40,5 +40,5 @@ Since the vid/pid list is constantly changing, a tool is provided to re-generate
 
 ## Credits/Thanks
 
-- @joelsernamoreno
-- @chegewara
+- [@joelsernamoreno](https://github.com/joelsernamoreno)
+- [@chegewara](https://github.com/chegewara)
